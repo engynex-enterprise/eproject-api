@@ -376,6 +376,9 @@ export class ProjectsService {
             spaces: true,
           },
         },
+        appearance: {
+          select: { color: true, iconName: true },
+        },
       },
     });
 
@@ -383,7 +386,20 @@ export class ProjectsService {
       throw new NotFoundException('Project not found');
     }
 
-    return project;
+    // Fetch lead user if assigned
+    const lead = project.leadId
+      ? await this.prisma.user.findUnique({
+          where: { id: project.leadId },
+          select: { id: true, email: true, firstName: true, lastName: true, avatarUrl: true },
+        })
+      : null;
+
+    return {
+      ...project,
+      lead,
+      iconUrl: project.appearance?.iconName ?? null,
+      color: project.appearance?.color ?? null,
+    };
   }
 
   async findByKey(orgId: string, key: string) {
