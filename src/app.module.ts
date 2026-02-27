@@ -43,6 +43,7 @@ import { AutomationsModule } from './modules/automations/automations.module.js';
 import { TimelineModule } from './modules/timeline/timeline.module.js';
 import { FiltersModule } from './modules/filters/filters.module.js';
 import { AppearanceModule } from './modules/appearance/appearance.module.js';
+import { NotificationConfigModule } from './modules/notification-config/notification-config.module.js';
 import { AuditLogModule } from './modules/audit-log/audit-log.module.js';
 import { WorkingDaysModule } from './modules/working-days/working-days.module.js';
 import { EstimationsModule } from './modules/estimations/estimations.module.js';
@@ -84,6 +85,7 @@ import { EstimationsModule } from './modules/estimations/estimations.module.js';
     TimelineModule,
     FiltersModule,
     AppearanceModule,
+    NotificationConfigModule,
     AuditLogModule,
     WorkingDaysModule,
     EstimationsModule,

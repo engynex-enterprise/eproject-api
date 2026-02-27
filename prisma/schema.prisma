@@ -219,19 +219,48 @@ model OrganizationStorageConfig {
 model OrganizationNotificationConfig {
   id               Int      @id @default(autoincrement())
   orgId            Int      @unique @map("org_id")
-  emailEnabled     Boolean  @default(true) @map("email_enabled")
+
+  // ── Email general ──────────────────────────────────────────
+  emailEnabled     Boolean  @default(false) @map("email_enabled")
+  emailProvider    String   @default("smtp") @map("email_provider") // smtp | sendgrid | aws_ses | gmail
   emailFromName    String?  @map("email_from_name")
   emailFromAddress String?  @map("email_from_address")
+
+  // ── SMTP ───────────────────────────────────────────────────
   smtpHost         String?  @map("smtp_host")
   smtpPort         Int?     @map("smtp_port")
   smtpUser         String?  @map("smtp_user")
   smtpPassword     String?  @map("smtp_password")
+  smtpSecure       Boolean  @default(false) @map("smtp_secure")
+
+  // ── SendGrid ───────────────────────────────────────────────
+  sendgridApiKey   String?  @map("sendgrid_api_key")
+
+  // ── AWS SES ────────────────────────────────────────────────
+  awsAccessKeyId       String? @map("aws_access_key_id")
+  awsSecretAccessKey   String? @map("aws_secret_access_key")
+  awsRegion            String? @default("us-east-1") @map("aws_region")
+
+  // ── Gmail / Google Workspace OAuth2 ───────────────────────
+  gmailClientId        String? @map("gmail_client_id")
+  gmailClientSecret    String? @map("gmail_client_secret")
+  gmailRefreshToken    String? @map("gmail_refresh_token")
+
+  // ── SMS ────────────────────────────────────────────────────
   smsEnabled       Boolean  @default(false) @map("sms_enabled")
   smsProvider      String?  @map("sms_provider")
   smsApiKey        String?  @map("sms_api_key")
+
+  // ── WhatsApp ───────────────────────────────────────────────
   whatsappEnabled  Boolean  @default(false) @map("whatsapp_enabled")
   whatsappApiKey   String?  @map("whatsapp_api_key")
+
+  // ── Internal ───────────────────────────────────────────────
   internalEnabled  Boolean  @default(true) @map("internal_enabled")
+
+  // ── Email templates (JSON) ─────────────────────────────────
+  emailTemplates   Json?    @map("email_templates")
+
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
