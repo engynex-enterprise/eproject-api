@@ -208,7 +208,14 @@ export class ProjectsService {
             members: true,
             issues: { where: { deletedAt: null } },
             sprints: true,
+            spaces: { where: { deletedAt: null, isActive: true } },
           },
+        },
+        // Spaces
+        spaces: {
+          where: { deletedAt: null, isActive: true },
+          select: { id: true, name: true, key: true, color: true, iconName: true },
+          orderBy: { sortOrder: 'asc' },
         },
         // Lead user info
         members: {
@@ -304,6 +311,14 @@ export class ProjectsService {
         },
         healthColor,
         leadId: project.leadId,
+        spaceCount: project._count.spaces,
+        spaces: project.spaces.map((s) => ({
+          id: s.id,
+          name: s.name,
+          key: s.key,
+          color: s.color,
+          iconName: s.iconName,
+        })),
       };
     });
   }
