@@ -1,0 +1,1180 @@
+// ─────────────────────────────────────────────────────────────
+// eproject-api  –  Prisma Schema
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Users & Auth
+// ═════════════════════════════════════════════════════════════
+
+model User {
+  id              Int       @id @default(autoincrement())
+  email           String    @unique
+  passwordHash    String?   @map("password_hash")
+  firstName       String    @map("first_name")
+  lastName        String    @map("last_name")
+  displayName     String?   @map("display_name")
+  avatarUrl       String?   @map("avatar_url")
+  phone           String?
+  timezone        String    @default("UTC")
+  locale          String    @default("es")
+  isEmailVerified Boolean   @default(false) @map("is_email_verified")
+  isActive        Boolean   @default(true) @map("is_active")
+  lastLoginAt     DateTime? @map("last_login_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  // Relations
+  oauthAccounts      OAuthAccount[]
+  refreshTokens      RefreshToken[]
+  orgMemberships     OrganizationMember[]
+  projectMemberships ProjectMember[]
+  assignedIssues     Issue[]              @relation("AssigneeRelation")
+  reportedIssues     Issue[]              @relation("ReporterRelation")
+  comments           Comment[]
+  watchedIssues      IssueWatcher[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+  savedFilters       SavedFilter[]
+  timeEntries        TimeEntry[]
+
+  @@index([email])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model OAuthAccount {
+  id             Int       @id @default(autoincrement())
+  userId         Int       @map("user_id")
+  provider       String
+  providerUserId String    @map("provider_user_id")
+  accessToken    String?   @map("access_token")
+  refreshToken   String?   @map("refresh_token")
+  expiresAt      DateTime? @map("expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+model RefreshToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  token     String    @unique
+  userAgent String?   @map("user_agent")
+  ipAddress String?   @map("ip_address")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Organizations
+// ═════════════════════════════════════════════════════════════
+
+model Organization {
+  id          Int       @id @default(autoincrement())
+  name        String
+  slug        String    @unique
+  description String?
+  logoUrl     String?   @map("logo_url")
+  website     String?
+  isPersonal  Boolean   @default(false) @map("is_personal")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  // Relations
+  members            OrganizationMember[]
+  invitations        OrganizationInvitation[]
+  projects           Project[]
+  roles              Role[]
+  ssoConfig          OrganizationSsoConfig?
+  appearance         OrganizationAppearance?
+  storageConfig      OrganizationStorageConfig?
+  notificationConfig OrganizationNotificationConfig?
+  auditLogs          AuditLog[]
+  tags               Tag[]
+  customFields       CustomField[]
+
+  @@index([slug])
+  @@index([deletedAt])
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id       Int      @id @default(autoincrement())
+  orgId    Int      @map("org_id")
+  userId   Int      @map("user_id")
+  roleId   Int      @map("role_id")
+  joinedAt DateTime @default(now()) @map("joined_at")
+  isActive Boolean  @default(true) @map("is_active")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@unique([orgId, userId])
+  @@index([orgId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+model OrganizationInvitation {
+  id          Int       @id @default(autoincrement())
+  orgId       Int       @map("org_id")
+  email       String
+  roleId      Int       @map("role_id")
+  token       String    @unique
+  invitedById Int       @map("invited_by_id")
+  status      String    @default("pending")
+  expiresAt   DateTime  @map("expires_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@index([orgId])
+  @@index([email])
+  @@index([token])
+  @@map("organization_invitations")
+}
+
+model OrganizationSsoConfig {
+  id             Int      @id @default(autoincrement())
+  orgId          Int      @unique @map("org_id")
+  googleEnabled  Boolean  @default(false) @map("google_enabled")
+  googleClientId String?  @map("google_client_id")
+  googleSecret   String?  @map("google_secret")
+  githubEnabled  Boolean  @default(false) @map("github_enabled")
+  githubClientId String?  @map("github_client_id")
+  githubSecret   String?  @map("github_secret")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("organization_sso_configs")
+}
+
+model OrganizationAppearance {
+  id             Int      @id @default(autoincrement())
+  orgId          Int      @unique @map("org_id")
+  primaryColor   String?  @map("primary_color")
+  secondaryColor String?  @map("secondary_color")
+  accentColor    String?  @map("accent_color")
+  fontFamily     String?  @map("font_family")
+  faviconUrl     String?  @map("favicon_url")
+  customCss      String?  @map("custom_css")
+  darkMode       Boolean  @default(false) @map("dark_mode")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("organization_appearances")
+}
+
+model OrganizationStorageConfig {
+  id               Int      @id @default(autoincrement())
+  orgId            Int      @unique @map("org_id")
+  provider         String   @default("supabase")
+  storageBucket    String?  @map("storage_bucket")
+  maxFileSizeMb    Int      @default(25) @map("max_file_size_mb")
+  allowedMimeTypes String[] @map("allowed_mime_types")
+  totalQuotaGb     Decimal  @default(5) @map("total_quota_gb") @db.Decimal(10, 2)
+  usedStorageBytes BigInt   @default(0) @map("used_storage_bytes")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("organization_storage_configs")
+}
+
+model OrganizationNotificationConfig {
+  id               Int      @id @default(autoincrement())
+  orgId            Int      @unique @map("org_id")
+  emailEnabled     Boolean  @default(true) @map("email_enabled")
+  emailFromName    String?  @map("email_from_name")
+  emailFromAddress String?  @map("email_from_address")
+  smtpHost         String?  @map("smtp_host")
+  smtpPort         Int?     @map("smtp_port")
+  smtpUser         String?  @map("smtp_user")
+  smtpPassword     String?  @map("smtp_password")
+  smsEnabled       Boolean  @default(false) @map("sms_enabled")
+  smsProvider      String?  @map("sms_provider")
+  smsApiKey        String?  @map("sms_api_key")
+  whatsappEnabled  Boolean  @default(false) @map("whatsapp_enabled")
+  whatsappApiKey   String?  @map("whatsapp_api_key")
+  internalEnabled  Boolean  @default(true) @map("internal_enabled")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("organization_notification_configs")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Roles & Permissions
+// ═════════════════════════════════════════════════════════════
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  orgId       Int?     @map("org_id")
+  name        String
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  scope       String   @default("organization")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organization    Organization?          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  permissions     RolePermission[]
+  orgMembers      OrganizationMember[]
+  projectMembers  ProjectMember[]
+  orgInvitations  OrganizationInvitation[]
+
+  @@unique([orgId, name, scope])
+  @@index([orgId])
+  @@map("roles")
+}
+
+model Permission {
+  id          Int      @id @default(autoincrement())
+  resource    String
+  action      String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  roles RolePermission[]
+
+  @@unique([resource, action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           Int      @id @default(autoincrement())
+  roleId       Int      @map("role_id")
+  permissionId Int      @map("permission_id")
+  conditions   Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@map("role_permissions")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Projects
+// ═════════════════════════════════════════════════════════════
+
+model Project {
+  id                Int       @id @default(autoincrement())
+  orgId             Int       @map("org_id")
+  name              String
+  key               String
+  description       String?
+  avatarUrl         String?   @map("avatar_url")
+  leadId            Int?      @map("lead_id")
+  defaultAssigneeId Int?      @map("default_assignee_id")
+  issueCounter      Int       @default(0) @map("issue_counter")
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  organization            Organization              @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  members                 ProjectMember[]
+  spaces                  Space[]
+  issues                  Issue[]
+  sprints                 Sprint[]
+  versions                Version[]
+  boards                  Board[]
+  workflows               Workflow[]
+  statuses                ProjectStatus[]
+  issueTypes              ProjectIssueType[]
+  priorities              ProjectPriority[]
+  tags                    ProjectTag[]
+  automations             Automation[]
+  settings                ProjectSettings?
+  workingDays             ProjectWorkingDays?
+  estimation              ProjectEstimation?
+  appearance              ProjectAppearance?
+  notificationSettings    ProjectNotificationSetting[]
+  savedFilters            SavedFilter[]
+
+  @@unique([orgId, key])
+  @@index([orgId])
+  @@index([key])
+  @@index([deletedAt])
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        Int      @id @default(autoincrement())
+  projectId Int      @map("project_id")
+  userId    Int      @map("user_id")
+  roleId    Int      @map("role_id")
+  joinedAt  DateTime @default(now()) @map("joined_at")
+  isActive  Boolean  @default(true) @map("is_active")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    Role    @relation(fields: [roleId], references: [id])
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+model ProjectSettings {
+  id                     Int      @id @default(autoincrement())
+  projectId              Int      @unique @map("project_id")
+  defaultStatusId        Int?     @map("default_status_id")
+  defaultPriorityId      Int?     @map("default_priority_id")
+  defaultIssueTypeId     Int?     @map("default_issue_type_id")
+  allowSubtasks          Boolean  @default(true) @map("allow_subtasks")
+  requireEstimation      Boolean  @default(false) @map("require_estimation")
+  enableSprints          Boolean  @default(true) @map("enable_sprints")
+  enableVersions         Boolean  @default(true) @map("enable_versions")
+  enableBacklog          Boolean  @default(true) @map("enable_backlog")
+  enableTimeline         Boolean  @default(true) @map("enable_timeline")
+  enableReports          Boolean  @default(true) @map("enable_reports")
+  enableAutomations      Boolean  @default(true) @map("enable_automations")
+  applyConfigToAllSpaces Boolean  @default(true) @map("apply_config_to_all_spaces")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_settings")
+}
+
+model ProjectWorkingDays {
+  id            Int      @id @default(autoincrement())
+  projectId     Int      @unique @map("project_id")
+  monday        Boolean  @default(true)
+  tuesday       Boolean  @default(true)
+  wednesday     Boolean  @default(true)
+  thursday      Boolean  @default(true)
+  friday        Boolean  @default(true)
+  saturday      Boolean  @default(false)
+  sunday        Boolean  @default(false)
+  workStartTime String   @default("09:00") @map("work_start_time")
+  workEndTime   String   @default("18:00") @map("work_end_time")
+  holidays      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_working_days")
+}
+
+model ProjectEstimation {
+  id              Int      @id @default(autoincrement())
+  projectId       Int      @unique @map("project_id")
+  estimationType  String   @default("story_points") @map("estimation_type")
+  storyPointScale Json?    @map("story_point_scale")
+  customScale     Json?    @map("custom_scale")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_estimations")
+}
+
+model ProjectAppearance {
+  id            Int      @id @default(autoincrement())
+  projectId     Int      @unique @map("project_id")
+  color         String?
+  iconName      String?  @map("icon_name")
+  coverImageUrl String?  @map("cover_image_url")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_appearances")
+}
+
+model ProjectNotificationSetting {
+  id        Int      @id @default(autoincrement())
+  projectId Int      @map("project_id")
+  eventType String   @map("event_type")
+  channel   String
+  isEnabled Boolean  @default(true) @map("is_enabled")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, eventType, channel])
+  @@index([projectId])
+  @@map("project_notification_settings")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Spaces
+// ═════════════════════════════════════════════════════════════
+
+model Space {
+  id        Int       @id @default(autoincrement())
+  projectId Int       @map("project_id")
+  name      String
+  key       String
+  description String?
+  color     String?
+  iconName  String?   @map("icon_name")
+  sortOrder Int       @default(0) @map("sort_order")
+  isDefault Boolean   @default(false) @map("is_default")
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues      Issue[]
+  settings    SpaceSettings?
+  workingDays SpaceWorkingDays?
+  estimation  SpaceEstimation?
+  boardConfig SpaceBoardConfig?
+
+  @@unique([projectId, key])
+  @@index([projectId])
+  @@index([deletedAt])
+  @@map("spaces")
+}
+
+model SpaceSettings {
+  id                 Int      @id @default(autoincrement())
+  spaceId            Int      @unique @map("space_id")
+  inheritsProject    Boolean  @default(true) @map("inherits_project")
+  defaultStatusId    Int?     @map("default_status_id")
+  defaultPriorityId  Int?     @map("default_priority_id")
+  defaultIssueTypeId Int?     @map("default_issue_type_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@map("space_settings")
+}
+
+model SpaceWorkingDays {
+  id              Int      @id @default(autoincrement())
+  spaceId         Int      @unique @map("space_id")
+  inheritsProject Boolean  @default(true) @map("inherits_project")
+  monday          Boolean  @default(true)
+  tuesday         Boolean  @default(true)
+  wednesday       Boolean  @default(true)
+  thursday        Boolean  @default(true)
+  friday          Boolean  @default(true)
+  saturday        Boolean  @default(false)
+  sunday          Boolean  @default(false)
+  workStartTime   String   @default("09:00") @map("work_start_time")
+  workEndTime     String   @default("18:00") @map("work_end_time")
+  holidays        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@map("space_working_days")
+}
+
+model SpaceEstimation {
+  id              Int      @id @default(autoincrement())
+  spaceId         Int      @unique @map("space_id")
+  inheritsProject Boolean  @default(true) @map("inherits_project")
+  estimationType  String   @default("story_points") @map("estimation_type")
+  storyPointScale Json?    @map("story_point_scale")
+  customScale     Json?    @map("custom_scale")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@map("space_estimations")
+}
+
+model SpaceBoardConfig {
+  id               Int      @id @default(autoincrement())
+  spaceId          Int      @unique @map("space_id")
+  inheritsProject  Boolean  @default(true) @map("inherits_project")
+  columns          Json?
+  swimlanes        Json?
+  cardColorField   String?  @map("card_color_field")
+  cardDisplayFields Json?   @map("card_display_fields")
+  quickFilters     Json?    @map("quick_filters")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@map("space_board_configs")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Statuses, Issue Types, Priorities
+// ═════════════════════════════════════════════════════════════
+
+model StatusGroup {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  color String
+
+  statuses Status[]
+
+  @@map("status_groups")
+}
+
+model Status {
+  id            Int      @id @default(autoincrement())
+  name          String
+  description   String?
+  statusGroupId Int      @map("status_group_id")
+  color         String?
+  iconName      String?  @map("icon_name")
+  isSystem      Boolean  @default(false) @map("is_system")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  statusGroup     StatusGroup          @relation(fields: [statusGroupId], references: [id])
+  projectStatuses ProjectStatus[]
+  issues          Issue[]
+  transitionsFrom WorkflowTransition[] @relation("TransitionFrom")
+  transitionsTo   WorkflowTransition[] @relation("TransitionTo")
+
+  @@index([statusGroupId])
+  @@map("statuses")
+}
+
+model ProjectStatus {
+  id        Int      @id @default(autoincrement())
+  projectId Int      @map("project_id")
+  statusId  Int      @map("status_id")
+  sortOrder Int      @default(0) @map("sort_order")
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status  Status  @relation(fields: [statusId], references: [id])
+
+  @@unique([projectId, statusId])
+  @@index([projectId])
+  @@map("project_statuses")
+}
+
+model IssueType {
+  id             Int      @id @default(autoincrement())
+  name           String
+  description    String?
+  iconName       String?  @map("icon_name")
+  color          String?
+  isSubtask      Boolean  @default(false) @map("is_subtask")
+  hierarchyLevel Int      @default(0) @map("hierarchy_level")
+  isSystem       Boolean  @default(false) @map("is_system")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  projectIssueTypes        ProjectIssueType[]
+  issues                   Issue[]
+  workflowIssueTypeMappings WorkflowIssueTypeMapping[]
+
+  @@map("issue_types")
+}
+
+model ProjectIssueType {
+  id          Int      @id @default(autoincrement())
+  projectId   Int      @map("project_id")
+  issueTypeId Int      @map("issue_type_id")
+  isDefault   Boolean  @default(false) @map("is_default")
+  isEnabled   Boolean  @default(true) @map("is_enabled")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issueType IssueType @relation(fields: [issueTypeId], references: [id])
+
+  @@unique([projectId, issueTypeId])
+  @@index([projectId])
+  @@map("project_issue_types")
+}
+
+model Priority {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  iconName    String?  @map("icon_name")
+  color       String?
+  value       Int      @default(0)
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  projectPriorities ProjectPriority[]
+  issues            Issue[]
+
+  @@map("priorities")
+}
+
+model ProjectPriority {
+  id         Int      @id @default(autoincrement())
+  projectId  Int      @map("project_id")
+  priorityId Int      @map("priority_id")
+  isDefault  Boolean  @default(false) @map("is_default")
+  isEnabled  Boolean  @default(true) @map("is_enabled")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  priority Priority @relation(fields: [priorityId], references: [id])
+
+  @@unique([projectId, priorityId])
+  @@index([projectId])
+  @@map("project_priorities")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Issues
+// ═════════════════════════════════════════════════════════════
+
+model Issue {
+  id              Int       @id @default(autoincrement())
+  projectId       Int       @map("project_id")
+  spaceId         Int?      @map("space_id")
+  issueTypeId     Int       @map("issue_type_id")
+  statusId        Int       @map("status_id")
+  priorityId      Int?      @map("priority_id")
+  parentId        Int?      @map("parent_id")
+  epicId          Int?      @map("epic_id")
+  sprintId        Int?      @map("sprint_id")
+  versionId       Int?      @map("version_id")
+  issueNumber     Int       @map("issue_number")
+  title           String
+  description     String?   @db.Text
+  assigneeId      Int?      @map("assignee_id")
+  reporterId      Int       @map("reporter_id")
+  storyPoints     Decimal?  @map("story_points") @db.Decimal(5, 1)
+  estimatedHours  Decimal?  @map("estimated_hours") @db.Decimal(8, 2)
+  loggedHours     Decimal   @default(0) @map("logged_hours") @db.Decimal(8, 2)
+  startDate       DateTime? @map("start_date") @db.Date
+  dueDate         DateTime? @map("due_date") @db.Date
+  completedAt     DateTime? @map("completed_at")
+  boardPosition   Int       @default(0) @map("board_position")
+  backlogPosition Int       @default(0) @map("backlog_position")
+  environment     String?
+  resolution      String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  // Relations
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  space        Space?     @relation(fields: [spaceId], references: [id], onDelete: SetNull)
+  issueType    IssueType  @relation(fields: [issueTypeId], references: [id])
+  status       Status     @relation(fields: [statusId], references: [id])
+  priority     Priority?  @relation(fields: [priorityId], references: [id])
+  parent       Issue?     @relation("IssueParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children     Issue[]    @relation("IssueParent")
+  epic         Issue?     @relation("EpicIssues", fields: [epicId], references: [id], onDelete: SetNull)
+  epicChildren Issue[]    @relation("EpicIssues")
+  assignee     User?      @relation("AssigneeRelation", fields: [assigneeId], references: [id], onDelete: SetNull)
+  reporter     User       @relation("ReporterRelation", fields: [reporterId], references: [id])
+  sprint       Sprint?    @relation(fields: [sprintId], references: [id], onDelete: SetNull)
+  version      Version?   @relation(fields: [versionId], references: [id], onDelete: SetNull)
+
+  comments          Comment[]
+  attachments       Attachment[]
+  watchers          IssueWatcher[]
+  tags              IssueTag[]
+  history           IssueHistory[]
+  relationsFrom     IssueRelation[]         @relation("RelationFrom")
+  relationsTo       IssueRelation[]         @relation("RelationTo")
+  timeEntries       TimeEntry[]
+  customFieldValues IssueCustomFieldValue[]
+
+  @@unique([projectId, issueNumber])
+  @@index([projectId])
+  @@index([spaceId])
+  @@index([statusId])
+  @@index([assigneeId])
+  @@index([reporterId])
+  @@index([parentId])
+  @@index([epicId])
+  @@index([sprintId])
+  @@index([versionId])
+  @@index([priorityId])
+  @@index([issueTypeId])
+  @@index([deletedAt])
+  @@index([createdAt])
+  @@map("issues")
+}
+
+model IssueRelation {
+  id           Int      @id @default(autoincrement())
+  fromIssueId  Int      @map("from_issue_id")
+  toIssueId    Int      @map("to_issue_id")
+  relationType String   @map("relation_type")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  fromIssue Issue @relation("RelationFrom", fields: [fromIssueId], references: [id], onDelete: Cascade)
+  toIssue   Issue @relation("RelationTo", fields: [toIssueId], references: [id], onDelete: Cascade)
+
+  @@unique([fromIssueId, toIssueId, relationType])
+  @@index([fromIssueId])
+  @@index([toIssueId])
+  @@map("issue_relations")
+}
+
+model IssueWatcher {
+  id      Int      @id @default(autoincrement())
+  issueId Int      @map("issue_id")
+  userId  Int      @map("user_id")
+  addedAt DateTime @default(now()) @map("added_at")
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issueId, userId])
+  @@index([issueId])
+  @@map("issue_watchers")
+}
+
+model IssueHistory {
+  id         Int      @id @default(autoincrement())
+  issueId    Int      @map("issue_id")
+  userId     Int      @map("user_id")
+  field      String
+  oldValue   String?  @map("old_value")
+  newValue   String?  @map("new_value")
+  oldValueId Int?     @map("old_value_id")
+  newValueId Int?     @map("new_value_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@index([issueId])
+  @@index([createdAt])
+  @@map("issue_history")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Tags & Custom Fields
+// ═════════════════════════════════════════════════════════════
+
+model Tag {
+  id        Int      @id @default(autoincrement())
+  orgId     Int      @map("org_id")
+  name      String
+  color     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectTags  ProjectTag[]
+  issueTags    IssueTag[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("tags")
+}
+
+model ProjectTag {
+  id        Int      @id @default(autoincrement())
+  projectId Int      @map("project_id")
+  tagId     Int      @map("tag_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, tagId])
+  @@map("project_tags")
+}
+
+model IssueTag {
+  id      Int      @id @default(autoincrement())
+  issueId Int      @map("issue_id")
+  tagId   Int      @map("tag_id")
+  addedAt DateTime @default(now()) @map("added_at")
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([issueId, tagId])
+  @@index([issueId])
+  @@map("issue_tags")
+}
+
+model CustomField {
+  id         Int      @id @default(autoincrement())
+  orgId      Int      @map("org_id")
+  name       String
+  fieldType  String   @map("field_type")
+  options    Json?
+  isRequired Boolean  @default(false) @map("is_required")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  organization Organization            @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  values       IssueCustomFieldValue[]
+
+  @@index([orgId])
+  @@map("custom_fields")
+}
+
+model IssueCustomFieldValue {
+  id            Int       @id @default(autoincrement())
+  issueId       Int       @map("issue_id")
+  customFieldId Int       @map("custom_field_id")
+  textValue     String?   @map("text_value")
+  numberValue   Decimal?  @map("number_value") @db.Decimal(15, 4)
+  dateValue     DateTime? @map("date_value") @db.Date
+  jsonValue     Json?     @map("json_value")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  issue       Issue       @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  customField CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([issueId, customFieldId])
+  @@index([issueId])
+  @@index([customFieldId])
+  @@map("issue_custom_field_values")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Sprints & Versions
+// ═════════════════════════════════════════════════════════════
+
+model Sprint {
+  id          Int       @id @default(autoincrement())
+  projectId   Int       @map("project_id")
+  name        String
+  goal        String?
+  status      String    @default("planned")
+  startDate   DateTime? @map("start_date") @db.Date
+  endDate     DateTime? @map("end_date") @db.Date
+  completedAt DateTime? @map("completed_at")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues  Issue[]
+
+  @@index([projectId])
+  @@index([status])
+  @@map("sprints")
+}
+
+model Version {
+  id          Int       @id @default(autoincrement())
+  projectId   Int       @map("project_id")
+  name        String
+  description String?
+  status      String    @default("unreleased")
+  releaseDate DateTime? @map("release_date") @db.Date
+  startDate   DateTime? @map("start_date") @db.Date
+  releasedAt  DateTime? @map("released_at")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues  Issue[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("versions")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Boards & Workflows
+// ═════════════════════════════════════════════════════════════
+
+model Board {
+  id          Int      @id @default(autoincrement())
+  projectId   Int      @map("project_id")
+  name        String
+  type        String   @default("kanban")
+  isDefault   Boolean  @default(false) @map("is_default")
+  columns     Json?
+  swimlanes   Json?
+  filterQuery Json?    @map("filter_query")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("boards")
+}
+
+model Workflow {
+  id          Int      @id @default(autoincrement())
+  projectId   Int      @map("project_id")
+  name        String
+  description String?
+  isDefault   Boolean  @default(false) @map("is_default")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  project            Project                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  transitions        WorkflowTransition[]
+  issueTypeMappings  WorkflowIssueTypeMapping[]
+
+  @@index([projectId])
+  @@map("workflows")
+}
+
+model WorkflowTransition {
+  id             Int      @id @default(autoincrement())
+  workflowId     Int      @map("workflow_id")
+  fromStatusId   Int      @map("from_status_id")
+  toStatusId     Int      @map("to_status_id")
+  name           String?
+  conditions     Json?
+  validators     Json?
+  postFunctions  Json?    @map("post_functions")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  fromStatus Status   @relation("TransitionFrom", fields: [fromStatusId], references: [id])
+  toStatus   Status   @relation("TransitionTo", fields: [toStatusId], references: [id])
+
+  @@unique([workflowId, fromStatusId, toStatusId])
+  @@index([workflowId])
+  @@map("workflow_transitions")
+}
+
+model WorkflowIssueTypeMapping {
+  id          Int      @id @default(autoincrement())
+  workflowId  Int      @map("workflow_id")
+  issueTypeId Int      @map("issue_type_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workflow  Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  issueType IssueType @relation(fields: [issueTypeId], references: [id])
+
+  @@unique([workflowId, issueTypeId])
+  @@map("workflow_issue_type_mappings")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Comments, Attachments, Time Entries
+// ═════════════════════════════════════════════════════════════
+
+model Comment {
+  id        Int       @id @default(autoincrement())
+  issueId   Int       @map("issue_id")
+  userId    Int       @map("user_id")
+  parentId  Int?      @map("parent_id")
+  body      String    @db.Text
+  isEdited  Boolean   @default(false) @map("is_edited")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  issue    Issue     @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id])
+  parent   Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: SetNull)
+  children Comment[] @relation("CommentThread")
+
+  @@index([issueId])
+  @@index([userId])
+  @@index([parentId])
+  @@index([deletedAt])
+  @@map("comments")
+}
+
+model Attachment {
+  id            Int      @id @default(autoincrement())
+  issueId       Int      @map("issue_id")
+  uploadedById  Int      @map("uploaded_by_id")
+  fileName      String   @map("file_name")
+  originalName  String   @map("original_name")
+  mimeType      String   @map("mime_type")
+  fileSizeBytes BigInt   @map("file_size_bytes")
+  storagePath   String   @map("storage_path")
+  thumbnailUrl  String?  @map("thumbnail_url")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@index([issueId])
+  @@map("attachments")
+}
+
+model TimeEntry {
+  id          Int      @id @default(autoincrement())
+  issueId     Int      @map("issue_id")
+  userId      Int      @map("user_id")
+  hours       Decimal  @db.Decimal(6, 2)
+  description String?
+  loggedDate  DateTime @map("logged_date") @db.Date
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@index([issueId])
+  @@index([userId])
+  @@index([loggedDate])
+  @@map("time_entries")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Notifications
+// ═════════════════════════════════════════════════════════════
+
+model Notification {
+  id           Int       @id @default(autoincrement())
+  userId       Int       @map("user_id")
+  type         String
+  title        String
+  body         String?
+  resourceType String?   @map("resource_type")
+  resourceId   Int?      @map("resource_id")
+  channel      String    @default("internal")
+  isRead       Boolean   @default(false) @map("is_read")
+  readAt       DateTime? @map("read_at")
+  sentAt       DateTime? @map("sent_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  eventType String   @map("event_type")
+  channel   String
+  isEnabled Boolean  @default(true) @map("is_enabled")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, eventType, channel])
+  @@index([userId])
+  @@map("notification_preferences")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Automations
+// ═════════════════════════════════════════════════════════════
+
+model Automation {
+  id          Int       @id @default(autoincrement())
+  projectId   Int       @map("project_id")
+  name        String
+  description String?
+  isActive    Boolean   @default(true) @map("is_active")
+  trigger     Json
+  actions     Json
+  runCount    Int       @default(0) @map("run_count")
+  lastRunAt   DateTime? @map("last_run_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  project    Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  executions AutomationExecution[]
+
+  @@index([projectId])
+  @@index([isActive])
+  @@map("automations")
+}
+
+model AutomationExecution {
+  id           Int      @id @default(autoincrement())
+  automationId Int      @map("automation_id")
+  status       String   @default("success")
+  triggerData  Json?    @map("trigger_data")
+  resultData   Json?    @map("result_data")
+  errorMessage String?  @map("error_message")
+  executedAt   DateTime @default(now()) @map("executed_at")
+
+  automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@index([automationId])
+  @@index([executedAt])
+  @@map("automation_executions")
+}
+
+// ═════════════════════════════════════════════════════════════
+// Saved Filters & Audit
+// ═════════════════════════════════════════════════════════════
+
+model SavedFilter {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  projectId   Int?     @map("project_id")
+  name        String
+  description String?
+  filterQuery Json     @map("filter_query")
+  isShared    Boolean  @default(false) @map("is_shared")
+  isFavorite  Boolean  @default(false) @map("is_favorite")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([projectId])
+  @@map("saved_filters")
+}
+
+model AuditLog {
+  id           Int      @id @default(autoincrement())
+  orgId        Int      @map("org_id")
+  userId       Int?     @map("user_id")
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   Int?     @map("resource_id")
+  metadata     Json?
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([userId])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}

@@ -1,0 +1,10 @@
+export enum PermissionAction {
+  CREATE = 'CREATE',
+  READ = 'READ',
+  UPDATE = 'UPDATE',
+  DELETE = 'DELETE',
+  MANAGE = 'MANAGE',
+  ASSIGN = 'ASSIGN',
+  TRANSITION = 'TRANSITION',
+  RELEASE = 'RELEASE',
+}
