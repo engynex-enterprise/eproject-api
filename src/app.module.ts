@@ -15,6 +15,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard.js';
 
 // Interceptors
 import { TransformResponseInterceptor } from './common/interceptors/transform-response.interceptor.js';
+import { EventLoggingInterceptor } from './common/interceptors/event-logging.interceptor.js';
 
 // App
 import { AppController } from './app.controller.js';
@@ -108,6 +109,11 @@ import { EstimationsModule } from './modules/estimations/estimations.module.js';
     {
       provide: APP_INTERCEPTOR,
       useClass: TransformResponseInterceptor,
+    },
+    // Global audit logging — tracks all mutating requests (POST/PATCH/PUT/DELETE)
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: EventLoggingInterceptor,
     },
   ],
 })
