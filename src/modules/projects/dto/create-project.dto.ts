@@ -36,4 +36,12 @@ export class CreateProjectDto {
   @IsString()
   @MaxLength(100)
   category?: string;
+
+  @ApiPropertyOptional({ example: '#0052CC', description: 'Project color (hex)' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^#[0-9A-Fa-f]{6}$/, {
+    message: 'Color must be a valid hex color (e.g. #0052CC)',
+  })
+  color?: string;
 }

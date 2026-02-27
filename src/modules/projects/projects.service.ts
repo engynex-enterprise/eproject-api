@@ -169,6 +169,15 @@ export class ProjectsService {
         });
       }
 
+      // Create project appearance (icon + color)
+      await tx.projectAppearance.create({
+        data: {
+          projectId: newProject.id,
+          iconName: dto.iconUrl ?? 'folder-kanban',
+          color: dto.color ?? null,
+        },
+      });
+
       // Create a default board
       await tx.board.create({
         data: {
@@ -236,6 +245,10 @@ export class ProjectsService {
           where: { status: 'active' },
           take: 1,
           select: { id: true, name: true, startDate: true, endDate: true, status: true },
+        },
+        // Project appearance (icon + color)
+        appearance: {
+          select: { color: true, iconName: true },
         },
         // Issues grouped by status group for progress
         issues: {
@@ -313,6 +326,7 @@ export class ProjectsService {
           todo: totalIssues - doneCount - inProgressCount,
         },
         healthColor,
+        color: project.appearance?.color ?? null,
         leadId: project.leadId,
         spaceCount: project._count.spaces,
         spaces: project.spaces.map((s) => ({
@@ -406,6 +420,22 @@ export class ProjectsService {
         ...(dto.avatarUrl !== undefined && { avatarUrl: dto.avatarUrl }),
       },
     });
+
+    // Update appearance (icon + color) if provided
+    if (dto.color !== undefined || dto.avatarUrl !== undefined) {
+      await this.prisma.projectAppearance.upsert({
+        where: { projectId: numProjectId },
+        create: {
+          projectId: numProjectId,
+          ...(dto.avatarUrl !== undefined && { iconName: dto.avatarUrl }),
+          ...(dto.color !== undefined && { color: dto.color }),
+        },
+        update: {
+          ...(dto.avatarUrl !== undefined && { iconName: dto.avatarUrl }),
+          ...(dto.color !== undefined && { color: dto.color }),
+        },
+      });
+    }
 
     this.eventEmitter.emit(EventTypes.PROJECT_UPDATED, {
       userId: numUserId,
