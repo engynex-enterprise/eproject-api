@@ -212,4 +212,15 @@ export class UpdateNotificationConfigDto {
   @IsOptional()
   @IsObject()
   emailTemplates?: Record<string, { enabled?: boolean; subject?: string; body?: string }>;
+
+  // ── UI Alert config ────────────────────────────────────────────────────────
+  @ApiPropertyOptional({ enum: ['sileo', 'shadcn'] })
+  @IsOptional()
+  @IsIn(['sileo', 'shadcn'])
+  uiAlertProvider?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  sileoConfig?: Record<string, any>;
 }

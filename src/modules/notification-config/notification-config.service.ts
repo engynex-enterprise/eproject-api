@@ -82,6 +82,8 @@ export class NotificationConfigService {
         whatsappApiKey: null,
         internalEnabled: true,
         emailTemplates: DEFAULT_TEMPLATES,
+        uiAlertProvider: 'sileo',
+        sileoConfig: null,
       };
     }
 
@@ -146,6 +148,7 @@ export class NotificationConfigService {
       'smsEnabled', 'smsProvider', 'smsApiKey',
       'whatsappEnabled', 'whatsappApiKey',
       'internalEnabled',
+      'uiAlertProvider',
     ];
 
     for (const field of fields) {
@@ -154,6 +157,10 @@ export class NotificationConfigService {
 
     if (dto.emailTemplates !== undefined) {
       data['emailTemplates'] = dto.emailTemplates;
+    }
+
+    if (dto.sileoConfig !== undefined) {
+      data['sileoConfig'] = dto.sileoConfig;
     }
 
     return data;
