@@ -75,6 +75,33 @@ export class ProjectsController {
     return this.projectsService.update(projectId, user.userId, dto);
   }
 
+  @Post('projects/:projectId/members')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Add a member to a project' })
+  @ApiResponse({ status: 201, description: 'Member added' })
+  @ApiResponse({ status: 404, description: 'Project not found' })
+  @ApiResponse({ status: 409, description: 'User already a member' })
+  async addMember(
+    @Param('projectId') projectId: string,
+    @Body() body: { userId: number; roleId: number },
+  ) {
+    return this.projectsService.addMember(projectId, body.userId, body.roleId);
+  }
+
+  @Get('projects/:projectId/members')
+  @ApiOperation({ summary: 'Get project members' })
+  @ApiResponse({ status: 200, description: 'List of project members' })
+  async getMembers(@Param('projectId') projectId: string) {
+    return this.projectsService.getMembers(projectId);
+  }
+
+  @Get('organizations/:orgId/roles/all')
+  @ApiOperation({ summary: 'Get all available roles for an org' })
+  @ApiResponse({ status: 200, description: 'List of roles' })
+  async getRolesForOrg(@Param('orgId') orgId: string) {
+    return this.projectsService.getProjectRoles(orgId);
+  }
+
   @Delete('projects/:projectId')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Soft delete a project' })

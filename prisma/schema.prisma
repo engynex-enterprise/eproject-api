@@ -306,6 +306,7 @@ model Project {
   avatarUrl         String?   @map("avatar_url")
   leadId            Int?      @map("lead_id")
   defaultAssigneeId Int?      @map("default_assignee_id")
+  category          String?
   issueCounter      Int       @default(0) @map("issue_counter")
   isActive          Boolean   @default(true) @map("is_active")
   createdAt         DateTime  @default(now()) @map("created_at")

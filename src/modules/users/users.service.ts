@@ -80,6 +80,37 @@ export class UsersService {
     });
   }
 
+  async searchByEmailInOrg(orgId: string, email: string) {
+    const numOrgId = Number(orgId);
+    const lowerEmail = email.toLowerCase().trim();
+
+    const orgMembers = await this.prisma.organizationMember.findMany({
+      where: {
+        orgId: numOrgId,
+        isActive: true,
+        user: {
+          email: { contains: lowerEmail, mode: 'insensitive' },
+          isActive: true,
+        },
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            displayName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+      take: 10,
+    });
+
+    return orgMembers.map((m) => m.user);
+  }
+
   async getProfile(userId: string) {
     const numericUserId = Number(userId);
 

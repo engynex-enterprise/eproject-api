@@ -42,6 +42,9 @@ export class ProjectsService {
           description: dto.description,
           orgId: numOrgId,
           issueCounter: 0,
+          ...(dto.leadId !== undefined && { leadId: dto.leadId }),
+          ...(dto.iconUrl !== undefined && { avatarUrl: dto.iconUrl }),
+          ...(dto.category !== undefined && { category: dto.category }),
         },
       });
 
@@ -412,6 +415,75 @@ export class ProjectsService {
     });
 
     return updated;
+  }
+
+  async addMember(projectId: string, userId: number, roleId: number) {
+    const numProjectId = Number(projectId);
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: numProjectId, deletedAt: null },
+    });
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    // Check if already a member
+    const existing = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId: numProjectId, userId } },
+    });
+    if (existing) {
+      throw new ConflictException('User is already a member of this project');
+    }
+
+    const member = await this.prisma.projectMember.create({
+      data: {
+        projectId: numProjectId,
+        userId,
+        roleId,
+      },
+      include: {
+        user: {
+          select: { id: true, email: true, firstName: true, lastName: true, avatarUrl: true },
+        },
+        role: {
+          select: { id: true, name: true, scope: true },
+        },
+      },
+    });
+
+    return member;
+  }
+
+  async getMembers(projectId: string) {
+    const numProjectId = Number(projectId);
+
+    return this.prisma.projectMember.findMany({
+      where: { projectId: numProjectId, isActive: true },
+      include: {
+        user: {
+          select: { id: true, email: true, firstName: true, lastName: true, avatarUrl: true },
+        },
+        role: {
+          select: { id: true, name: true, scope: true },
+        },
+      },
+      orderBy: { joinedAt: 'asc' },
+    });
+  }
+
+  async getProjectRoles(orgId: string) {
+    const numOrgId = Number(orgId);
+
+    return this.prisma.role.findMany({
+      where: {
+        OR: [
+          { orgId: numOrgId },
+          { orgId: null, isSystem: true },
+        ],
+      },
+      select: { id: true, name: true, description: true, scope: true, isSystem: true },
+      orderBy: { name: 'asc' },
+    });
   }
 
   async softDelete(projectId: string, userId: string) {

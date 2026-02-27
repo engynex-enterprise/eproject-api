@@ -4,6 +4,7 @@ import {
   Patch,
   Body,
   Param,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -39,6 +40,16 @@ export class UsersController {
     @Body() dto: UpdateUserDto,
   ) {
     return this.usersService.update(user.userId, dto);
+  }
+
+  @Get('search/:orgId')
+  @ApiOperation({ summary: 'Search users by email within an organization' })
+  @ApiResponse({ status: 200, description: 'List of matching users' })
+  async searchByEmail(
+    @Param('orgId') orgId: string,
+    @Query('email') email: string,
+  ) {
+    return this.usersService.searchByEmailInOrg(orgId, email ?? '');
   }
 
   @Get(':id')
