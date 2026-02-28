@@ -1,14 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsEnum } from 'class-validator';
-import { OrgRole } from '../../org-members/dto/add-member.dto.js';
+import { IsEmail, IsOptional, IsInt, IsPositive } from 'class-validator';
 
 export class CreateInvitationDto {
   @ApiProperty({ example: 'newuser@example.com' })
   @IsEmail()
-  email: string;
+  email!: string;
 
-  @ApiPropertyOptional({ enum: OrgRole, default: OrgRole.MEMBER })
+  @ApiPropertyOptional({ example: 1 })
   @IsOptional()
-  @IsEnum(OrgRole)
-  role?: OrgRole = OrgRole.MEMBER;
+  @IsInt()
+  @IsPositive()
+  roleId?: number;
 }

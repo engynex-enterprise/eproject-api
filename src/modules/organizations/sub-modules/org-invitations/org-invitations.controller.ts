@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Body,
   Param,
   HttpCode,
@@ -55,5 +56,17 @@ export class OrgInvitationsController {
     @CurrentUser() user: CurrentUserPayload,
   ) {
     return this.orgInvitationsService.accept(dto.token, user.userId);
+  }
+
+  @Delete(':invitationId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Cancel a pending invitation' })
+  @ApiResponse({ status: 200, description: 'Invitation cancelled' })
+  @ApiResponse({ status: 404, description: 'Invitation not found' })
+  async cancel(
+    @Param('orgId') orgId: string,
+    @Param('invitationId') invitationId: string,
+  ) {
+    return this.orgInvitationsService.cancel(orgId, invitationId);
   }
 }
