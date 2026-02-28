@@ -1,9 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum } from 'class-validator';
-import { OrgRole } from './add-member.dto.js';
+import { IsInt, IsPositive } from 'class-validator';
 
 export class UpdateMemberDto {
-  @ApiProperty({ enum: OrgRole })
-  @IsEnum(OrgRole)
-  role: OrgRole;
+  @ApiProperty({ example: 2, description: 'Role ID to assign to the member' })
+  @IsInt()
+  @IsPositive()
+  roleId!: number;
 }

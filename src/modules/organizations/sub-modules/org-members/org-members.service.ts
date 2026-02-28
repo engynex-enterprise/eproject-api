@@ -114,13 +114,12 @@ export class OrgMembersService {
       throw new NotFoundException('Member not found');
     }
 
-    // Look up the new role by name
-    const role = await this.prisma.role.findFirst({
-      where: { name: dto.role, isSystem: true },
+    const role = await this.prisma.role.findUnique({
+      where: { id: dto.roleId },
     });
 
     if (!role) {
-      throw new NotFoundException(`Role '${dto.role}' not found`);
+      throw new NotFoundException(`Role with id ${dto.roleId} not found`);
     }
 
     return this.prisma.organizationMember.update({
