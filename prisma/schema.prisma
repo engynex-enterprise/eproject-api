@@ -188,6 +188,8 @@ model OrganizationAppearance {
   secondaryColor String?  @map("secondary_color")
   accentColor    String?  @map("accent_color")
   fontFamily     String?  @map("font_family")
+  logoUrl        String?  @map("logo_url")
+  logoDarkUrl    String?  @map("logo_dark_url")
   faviconUrl     String?  @map("favicon_url")
   customCss      String?  @map("custom_css")
   darkMode       Boolean  @default(false) @map("dark_mode")

@@ -22,6 +22,16 @@ export class UpdateAppearanceDto {
   @IsString()
   fontFamily?: string;
 
+  @ApiPropertyOptional({ example: 'https://example.com/logo.png' })
+  @IsOptional()
+  @IsString()
+  logoUrl?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/logo-dark.png' })
+  @IsOptional()
+  @IsString()
+  logoDarkUrl?: string;
+
   @ApiPropertyOptional({ example: 'https://example.com/favicon.png' })
   @IsOptional()
   @IsString()
