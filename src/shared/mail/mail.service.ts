@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 import sgMail from '@sendgrid/mail';
 import nodemailer from 'nodemailer';
 import { PrismaService } from '../../database/prisma.service.js';
@@ -23,7 +25,10 @@ export interface MailTestResult {
 export class MailService {
   private readonly logger = new Logger(MailService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   // ── Config loader ────────────────────────────────────────────────────────────
 
@@ -33,19 +38,102 @@ export class MailService {
     });
   }
 
-  // ── Send ─────────────────────────────────────────────────────────────────────
+  // ── System-level send (uses .env config) ───────────────────────────────────
+
+  async sendSystemMail(opts: SendMailOptions): Promise<void> {
+    const provider = this.configService.get<string>('mail.provider', 'smtp');
+    const fromName = this.configService.get<string>('mail.fromName', 'eProject');
+    const fromAddress = this.configService.get<string>('mail.fromAddress', '');
+
+    if (!fromAddress) {
+      this.logger.warn('MAIL_FROM_ADDRESS not configured — skipping system mail');
+      return;
+    }
+
+    const from = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
+
+    try {
+      switch (provider) {
+        case 'sendgrid': {
+          const apiKey = this.configService.get<string>('mail.sendgrid.apiKey', '');
+          if (!apiKey) {
+            this.logger.warn('SENDGRID_API_KEY not configured');
+            return;
+          }
+          await this.sendViaSendGrid(apiKey, from, opts);
+          break;
+        }
+
+        case 'aws_ses': {
+          const accessKeyId = this.configService.get<string>('mail.aws.accessKeyId', '');
+          const secretAccessKey = this.configService.get<string>('mail.aws.secretAccessKey', '');
+          const region = this.configService.get<string>('mail.aws.region', 'us-east-1');
+          if (!accessKeyId || !secretAccessKey) {
+            this.logger.warn('AWS SES credentials not configured');
+            return;
+          }
+          await this.sendViaAwsSes({ accessKeyId, secretAccessKey, region }, fromAddress, fromName, opts);
+          break;
+        }
+
+        case 'gcp': {
+          const clientEmail = this.configService.get<string>('mail.gcp.clientEmail', '');
+          const privateKey = this.configService.get<string>('mail.gcp.privateKey', '');
+          if (!clientEmail || !privateKey) {
+            this.logger.warn('GCP credentials not configured');
+            return;
+          }
+          await this.sendViaGcp({ clientEmail, privateKey }, from, opts);
+          break;
+        }
+
+        case 'smtp':
+        default: {
+          const host = this.configService.get<string>('mail.smtp.host', '');
+          if (!host) {
+            this.logger.warn('SMTP_HOST not configured — skipping system mail');
+            return;
+          }
+          await this.sendViaSmtp(
+            {
+              host,
+              port: this.configService.get<number>('mail.smtp.port', 587),
+              secure: this.configService.get<boolean>('mail.smtp.secure', false),
+              user: this.configService.get<string>('mail.smtp.user') || undefined,
+              pass: this.configService.get<string>('mail.smtp.password') || undefined,
+            },
+            from,
+            opts,
+          );
+          break;
+        }
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`System mail failed: ${msg}`);
+    }
+  }
+
+  // ── Org-level send (DB config with fallback to system) ─────────────────────
 
   async sendMail(orgId: number, opts: SendMailOptions): Promise<void> {
     const config = await this.getConfig(orgId);
 
-    if (!config?.emailEnabled) {
-      this.logger.warn(`Email disabled for org ${orgId} — skipping send`);
-      return;
+    if (config?.emailEnabled) {
+      return this.sendWithOrgConfig(config, opts);
     }
 
+    // Fallback to system-level config
+    return this.sendSystemMail(opts);
+  }
+
+  private async sendWithOrgConfig(
+    config: NonNullable<Awaited<ReturnType<typeof this.getConfig>>>,
+    opts: SendMailOptions,
+  ): Promise<void> {
     const fromAddress = config.emailFromAddress;
     if (!fromAddress) {
-      this.logger.warn(`No from address configured for org ${orgId} — skipping send`);
+      this.logger.warn(`No from address configured for org ${config.orgId} — skipping send`);
       return;
     }
 
@@ -56,15 +144,45 @@ export class MailService {
     switch (config.emailProvider) {
       case 'sendgrid':
         if (!config.sendgridApiKey) {
-          this.logger.warn(`SendGrid API key missing for org ${orgId}`);
+          this.logger.warn(`SendGrid API key missing for org ${config.orgId}`);
           return;
         }
         await this.sendViaSendGrid(config.sendgridApiKey, from, opts);
         break;
 
+      case 'aws_ses':
+        if (!config.awsAccessKeyId || !config.awsSecretAccessKey) {
+          this.logger.warn(`AWS SES credentials missing for org ${config.orgId}`);
+          return;
+        }
+        await this.sendViaAwsSes(
+          {
+            accessKeyId: config.awsAccessKeyId,
+            secretAccessKey: config.awsSecretAccessKey,
+            region: config.awsRegion ?? 'us-east-1',
+          },
+          fromAddress,
+          config.emailFromName ?? undefined,
+          opts,
+        );
+        break;
+
+      case 'gcp':
+        if (!config.gmailClientId || !config.gmailRefreshToken) {
+          this.logger.warn(`GCP credentials missing for org ${config.orgId}`);
+          return;
+        }
+        await this.sendViaGcp(
+          { clientEmail: config.gmailClientId, privateKey: config.gmailRefreshToken },
+          from,
+          opts,
+        );
+        break;
+
       case 'smtp':
+      default:
         if (!config.smtpHost) {
-          this.logger.warn(`SMTP host missing for org ${orgId}`);
+          this.logger.warn(`SMTP host missing for org ${config.orgId}`);
           return;
         }
         await this.sendViaSmtp(
@@ -79,9 +197,6 @@ export class MailService {
           opts,
         );
         break;
-
-      default:
-        this.logger.warn(`Unsupported email provider "${config.emailProvider}" for org ${orgId}`);
     }
   }
 
@@ -111,7 +226,7 @@ export class MailService {
           await this.sendViaSendGrid(config.sendgridApiKey, from, {
             to: fromAddress,
             subject: 'Prueba de conexión — eProject',
-            html: '<p>La conexión con <strong>SendGrid</strong> funciona correctamente. Este es un correo de prueba generado automáticamente.</p>',
+            html: '<p>La conexión con <strong>SendGrid</strong> funciona correctamente.</p>',
           });
           return { success: true, message: `Correo de prueba enviado a ${fromAddress} vía SendGrid` };
         }
@@ -132,8 +247,22 @@ export class MailService {
           return { success: true, message: `Conexión SMTP con ${config.smtpHost}:${config.smtpPort ?? 587} verificada` };
         }
 
+        case 'aws_ses': {
+          if (!config.awsAccessKeyId || !config.awsSecretAccessKey) {
+            return { success: false, message: 'Faltan las credenciales de AWS SES' };
+          }
+          return { success: true, message: 'Credenciales de AWS SES configuradas' };
+        }
+
+        case 'gcp': {
+          if (!config.gmailClientId || !config.gmailRefreshToken) {
+            return { success: false, message: 'Faltan las credenciales de GCP' };
+          }
+          return { success: true, message: 'Credenciales de GCP configuradas' };
+        }
+
         default:
-          return { success: false, message: `Proveedor "${config.emailProvider}" no tiene soporte de prueba aún` };
+          return { success: false, message: `Proveedor "${config.emailProvider}" no soportado` };
       }
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -179,6 +308,65 @@ export class MailService {
       text: opts.text,
     });
     this.logger.debug(`SMTP: sent "${opts.subject}" to ${opts.to}`);
+  }
+
+  private async sendViaAwsSes(
+    awsCfg: { accessKeyId: string; secretAccessKey: string; region: string },
+    fromAddress: string,
+    fromName: string | undefined,
+    opts: SendMailOptions,
+  ): Promise<void> {
+    const client = new SESClient({
+      region: awsCfg.region,
+      credentials: {
+        accessKeyId: awsCfg.accessKeyId,
+        secretAccessKey: awsCfg.secretAccessKey,
+      },
+    });
+
+    const source = fromName ? `${fromName} <${fromAddress}>` : fromAddress;
+
+    const command = new SendEmailCommand({
+      Source: source,
+      Destination: { ToAddresses: [opts.to] },
+      Message: {
+        Subject: { Data: opts.subject, Charset: 'UTF-8' },
+        Body: {
+          Html: { Data: opts.html, Charset: 'UTF-8' },
+          ...(opts.text ? { Text: { Data: opts.text, Charset: 'UTF-8' } } : {}),
+        },
+      },
+    });
+
+    await client.send(command);
+    this.logger.debug(`AWS SES: sent "${opts.subject}" to ${opts.to}`);
+  }
+
+  private async sendViaGcp(
+    gcpCfg: { clientEmail: string; privateKey: string },
+    from: string,
+    opts: SendMailOptions,
+  ): Promise<void> {
+    const transporter = nodemailer.createTransport({
+      host: 'smtp-relay.gmail.com',
+      port: 465,
+      secure: true,
+      auth: {
+        type: 'OAuth2',
+        user: gcpCfg.clientEmail,
+        serviceClient: gcpCfg.clientEmail,
+        privateKey: gcpCfg.privateKey,
+      },
+    } as nodemailer.TransportOptions);
+
+    await transporter.sendMail({
+      from,
+      to: opts.to,
+      subject: opts.subject,
+      html: opts.html,
+      text: opts.text,
+    });
+    this.logger.debug(`GCP: sent "${opts.subject}" to ${opts.to}`);
   }
 
   // ── Template renderer ─────────────────────────────────────────────────────────

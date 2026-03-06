@@ -4,12 +4,13 @@ import appConfig from './app.config.js';
 import authConfig from './auth.config.js';
 import databaseConfig from './database.config.js';
 import storageConfig from './storage.config.js';
+import mailConfig from './mail.config.js';
 
 @Module({
   imports: [
     NestConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, authConfig, databaseConfig, storageConfig],
+      load: [appConfig, authConfig, databaseConfig, storageConfig, mailConfig],
       envFilePath: '.env',
     }),
   ],

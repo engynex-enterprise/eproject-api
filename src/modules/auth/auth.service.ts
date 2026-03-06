@@ -14,7 +14,8 @@ import { LoginDto } from './dto/login.dto.js';
 import { generateSlug } from '../../common/utils/slug.util.js';
 import { EventEmitterService } from '../../shared/events/event-emitter.service.js';
 import { EventTypes } from '../../shared/events/event-types.js';
-import { randomBytes } from 'crypto';
+import { MailService } from '../../shared/mail/mail.service.js';
+import { randomBytes, createHash } from 'crypto';
 
 export interface TokenPair {
   accessToken: string;
@@ -40,7 +41,12 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly eventEmitter: EventEmitterService,
+    private readonly mailService: MailService,
   ) {}
+
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
 
   async register(dto: RegisterDto): Promise<AuthResponse> {
     const existingUser = await this.prisma.user.findUnique({
@@ -112,6 +118,11 @@ export class AuthService {
       email: result.email,
       timestamp: new Date(),
     });
+
+    // Send email verification (fire-and-forget)
+    this.sendVerificationEmail(result.id, result.email, result.firstName).catch((err) =>
+      this.logger.error(`Failed to send verification email: ${(err as Error).message}`),
+    );
 
     return {
       user: {
@@ -197,11 +208,38 @@ export class AuthService {
       return { message: 'If the email exists, a reset link has been sent' };
     }
 
-    // TODO: Implement password reset token storage (e.g., in a separate table or cache)
-    // The User model does not have resetToken/resetTokenExpiry fields.
-    // For now, generate the token and log it for development purposes.
-    const resetToken = randomBytes(32).toString('hex');
-    this.logger.log(`Password reset token generated for user ${user.id}: ${resetToken}`);
+    // Invalidate any previous unused password reset tokens
+    await this.prisma.verificationToken.updateMany({
+      where: { userId: user.id, type: 'password_reset', usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    const rawToken = randomBytes(32).toString('hex');
+    const hashedToken = this.hashToken(rawToken);
+
+    await this.prisma.verificationToken.create({
+      data: {
+        userId: user.id,
+        token: hashedToken,
+        type: 'password_reset',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+      },
+    });
+
+    const frontendUrl = this.configService.get<string>('app.frontendUrl', 'http://localhost:3000');
+    const resetLink = `${frontendUrl}/reset-password?token=${rawToken}`;
+
+    this.mailService.sendSystemMail({
+      to: user.email,
+      subject: 'Recupera tu contraseña — eProject',
+      html: `<p>Hola ${user.firstName},</p>
+<p>Recibimos una solicitud para restablecer tu contraseña. Haz clic en el siguiente enlace:</p>
+<p><a href="${resetLink}">${resetLink}</a></p>
+<p>Este enlace expira en 1 hora. Si no solicitaste esto, ignora este correo.</p>
+<p>— El equipo de eProject</p>`,
+    }).catch((err) =>
+      this.logger.error(`Failed to send password reset email: ${(err as Error).message}`),
+    );
 
     this.eventEmitter.emit(EventTypes.USER_PASSWORD_RESET, {
       userId: user.id,
@@ -212,37 +250,105 @@ export class AuthService {
   }
 
   async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
-    // TODO: Implement proper token verification using a separate token store.
-    // The User model does not have resetToken/resetTokenExpiry fields.
-    // For now, this method validates the token parameter is present and updates the password
-    // once a proper token storage mechanism is implemented.
     if (!token) {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
-    // Placeholder: In a real implementation, look up the token in a dedicated store
-    // and retrieve the associated userId.
-    throw new BadRequestException(
-      'Password reset is not yet fully implemented. Token storage mechanism required.',
-    );
+    const hashedToken = this.hashToken(token);
+
+    const record = await this.prisma.verificationToken.findFirst({
+      where: {
+        token: hashedToken,
+        type: 'password_reset',
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!record) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: record.userId },
+        data: { passwordHash: hashedPassword },
+      }),
+      this.prisma.verificationToken.update({
+        where: { id: record.id },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
+    return { message: 'Password has been reset successfully' };
   }
 
   async verifyEmail(token: string): Promise<{ message: string }> {
-    // TODO: Implement proper token verification using a separate token store.
-    // The User model does not have a verificationToken field.
     if (!token) {
       throw new BadRequestException('Invalid verification token');
     }
 
-    // Placeholder: In a real implementation, look up the token in a dedicated store
-    // and retrieve the associated userId, then update the user:
-    // await this.prisma.user.update({
-    //   where: { id: userId },
-    //   data: { isEmailVerified: true },
-    // });
-    throw new BadRequestException(
-      'Email verification is not yet fully implemented. Token storage mechanism required.',
-    );
+    const hashedToken = this.hashToken(token);
+
+    const record = await this.prisma.verificationToken.findFirst({
+      where: {
+        token: hashedToken,
+        type: 'email_verification',
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!record) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: record.userId },
+        data: { isEmailVerified: true },
+      }),
+      this.prisma.verificationToken.update({
+        where: { id: record.id },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
+    this.eventEmitter.emit(EventTypes.USER_EMAIL_VERIFIED, {
+      userId: record.userId,
+      timestamp: new Date(),
+    });
+
+    return { message: 'Email verified successfully' };
+  }
+
+  private async sendVerificationEmail(userId: number, email: string, firstName: string): Promise<void> {
+    const rawToken = randomBytes(32).toString('hex');
+    const hashedToken = this.hashToken(rawToken);
+
+    await this.prisma.verificationToken.create({
+      data: {
+        userId,
+        token: hashedToken,
+        type: 'email_verification',
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+      },
+    });
+
+    const frontendUrl = this.configService.get<string>('app.frontendUrl', 'http://localhost:3000');
+    const verifyLink = `${frontendUrl}/verify-email?token=${rawToken}`;
+
+    await this.mailService.sendSystemMail({
+      to: email,
+      subject: 'Verifica tu correo electrónico — eProject',
+      html: `<p>Hola ${firstName},</p>
+<p>Bienvenido/a a eProject. Para verificar tu cuenta haz clic en el siguiente enlace:</p>
+<p><a href="${verifyLink}">${verifyLink}</a></p>
+<p>Este enlace expira en 24 horas.</p>
+<p>— El equipo de eProject</p>`,
+    });
   }
 
   async validateOAuthLogin(profile: {

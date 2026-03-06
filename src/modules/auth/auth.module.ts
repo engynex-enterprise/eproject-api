@@ -8,6 +8,7 @@ import { JwtStrategy } from './strategies/jwt.strategy.js';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy.js';
 import { GoogleOAuthStrategy } from './strategies/google-oauth.strategy.js';
 import { GitHubOAuthStrategy } from './strategies/github-oauth.strategy.js';
+import { MailModule } from '../../shared/mail/mail.module.js';
 
 /**
  * Conditionally register OAuth strategies only when credentials are configured.
@@ -28,6 +29,7 @@ function buildOAuthProviders(): Provider[] {
 
 @Module({
   imports: [
+    MailModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       inject: [ConfigService],
